@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"strconv"
 	"strings"
@@ -107,6 +109,10 @@ func TestProcessParallelFiles(t *testing.T) {
 	})
 
 	t.Run("Error case: file read error occurs", func(t *testing.T) {
+		var buf bytes.Buffer
+		log.SetOutput(&buf)
+		defer log.SetOutput(nil)
+
 		files, cleanup := createTempFiles(t, [][]byte{
 			[]byte("file1 content"),
 		})
@@ -114,9 +120,9 @@ func TestProcessParallelFiles(t *testing.T) {
 
 		files = append(files, "invalid_file_path")
 
-		_, err := ProcessParallelFiles(files, processor, 5)
-		if err == nil {
-			t.Fatal("error did not occur.")
+		ProcessParallelFiles(files, processor, 5)
+		if len(buf.String()) == 0 {
+			t.Fatal("error log did not occur.")
 		}
 	})
 

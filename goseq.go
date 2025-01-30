@@ -1,26 +1,32 @@
 package main
 
 import (
+	"iter"
 	"sync"
 )
 
 type Processer[T any, R any] func(T) (R, error)
-
-type Getter[T any] func() (<-chan T, <-chan error)
 
 type IndexData[T any] struct {
 	Index int
 	Data  T
 }
 
-func ProcessParallelOrdered[T any, R any](getter Getter[T], processor Processer[T, R], numWorkers int) ([]R, error) {
-	dataChan := make(chan IndexData[T])
+func ProcessParallelOrdered[T any, R any](getter iter.Seq[T], processor Processer[T, R], numWorkers int) ([]R, error) {
+	dataChan := make(chan IndexData[T], numWorkers)
 	resultChan := make(chan IndexData[R], numWorkers)
 	errChan := make(chan error, 1)
 	done := make(chan struct{})
 	var wg sync.WaitGroup
 
-	go fetchIndexedData(getter, dataChan, errChan)
+	go func() {
+		defer close(dataChan)
+		index := 0
+		for data := range getter {
+			dataChan <- IndexData[T]{Index: index, Data: data}
+			index++
+		}
+	}()
 	for i := 0; i < numWorkers; i++ {
 		wg.Add(1)
 		go func() {
@@ -42,30 +48,6 @@ func ProcessParallelOrdered[T any, R any](getter Getter[T], processor Processer[
 	}
 }
 
-func fetchIndexedData[T any](getter Getter[T], dataChan chan<- IndexData[T], errChan chan<- error) {
-	defer close(dataChan)
-	dataStream, errorStream := getter()
-	index := 0
-	for {
-		select {
-		case data, ok := <-dataStream:
-			if !ok {
-				return
-			}
-			dataChan <- IndexData[T]{Index: index, Data: data}
-			index++
-		case err, ok := <-errorStream:
-			if ok {
-				select {
-				case errChan <- err:
-				default:
-				}
-			}
-			return
-		}
-	}
-}
-
 func processIndexedData[T any, R any](processor Processer[T, R], dataChan <-chan IndexData[T], resultChan chan<- IndexData[R], errChan chan<- error) {
 	for chunk := range dataChan {
 		processedData, err := processor(chunk.Data)
@@ -84,9 +66,7 @@ func collectIndexedResults[R any](resultChan <-chan IndexData[R], done chan<- st
 	defer close(done)
 	for chunk := range resultChan {
 		if chunk.Index >= len(*collectData) {
-			for i := len(*collectData); i <= chunk.Index; i++ {
-				*collectData = append(*collectData, *new(R))
-			}
+			*collectData = append(*collectData, make([]R, chunk.Index-len(*collectData)+1)...)
 		}
 		(*collectData)[chunk.Index] = chunk.Data
 	}

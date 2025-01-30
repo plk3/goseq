@@ -34,19 +34,12 @@ import (
     "github.com/plk3/goseq" 
 )
 
-func exampleGetter() (<-chan int, <-chan error) {
-	dataStream := make(chan int)
-	errorStream := make(chan error)
-
-	go func() {
-		defer close(dataStream)
-		defer close(errorStream)
-		for i := 0; i < 10; i++ {
-			dataStream <- i
+func exampleGetter() (yield func(int) bool) {
+	for i := 1; i <= 10; i++ {
+		if !yield(i) {
+			break
 		}
-	}()
-
-	return dataStream, errorStream
+	}
 }
 
 func exampleProcessor(input int) (int, error) {
@@ -74,7 +67,7 @@ func main() {
 
 ### `ProcessParallelOrdered[T any, R any]`
 ```go
-func ProcessParallelOrdered[T any, R any](getter Getter[T], processor Processer[T, R], numWorkers int) ([]R, error)
+func ProcessParallelOrdered[T any, R any](getter iter.Seq[T], processor Processer[T, R], numWorkers int) ([]R, error)
 ```
 
 ### `ProcessPallelLines`
@@ -101,9 +94,4 @@ A function type that processes data `T` and returns a result `R` and an error.
 
 ```go
 type Processer[T any, R any] func(T) (R, error)
-```
-### `Getter[T any]`
-A function type that returns a data stream (<-chan T) and an error stream (<-chan error). This function is responsible for providing the input data for parallel processing.
-```go
-type Getter[T any] func() (<-chan T, <-chan error)
 ```

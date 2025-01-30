@@ -8,24 +8,19 @@ import (
 )
 
 func TestRunParallelProcessing_Success(t *testing.T) {
-	getData := func() (<-chan int, <-chan error) {
-		dataChan := make(chan int)
-		errChan := make(chan error)
-		go func() {
-			defer close(dataChan)
-			defer close(errChan)
-			for i := 1; i <= 10; i++ {
-				dataChan <- i
+	getIter := func(yield func(int) bool) {
+		for i := 1; i <= 10; i++ {
+			if !yield(i) {
+				break
 			}
-		}()
-		return dataChan, errChan
+		}
 	}
 
 	processData := func(x int) (string, error) {
 		return fmt.Sprintf("value: %d", x*2), nil
 	}
 
-	results, err := ProcessParallelOrdered(getData, processData, 3)
+	results, err := ProcessParallelOrdered(getIter, processData, 3)
 	if err != nil {
 		t.Fatalf("Expected no error, but got: %v", err)
 	}
@@ -40,17 +35,12 @@ func TestRunParallelProcessing_Success(t *testing.T) {
 }
 
 func TestRunParallelProcessing_ProcessError(t *testing.T) {
-	getData := func() (<-chan int, <-chan error) {
-		dataChan := make(chan int)
-		errChan := make(chan error)
-		go func() {
-			defer close(dataChan)
-			defer close(errChan)
-			for i := 1; i <= 5; i++ {
-				dataChan <- i
+	getIter := func(yield func(int) bool) {
+		for i := 1; i <= 5; i++ {
+			if !yield(i) {
+				break
 			}
-		}()
-		return dataChan, errChan
+		}
 	}
 
 	processData := func(x int) (string, error) {
@@ -60,7 +50,7 @@ func TestRunParallelProcessing_ProcessError(t *testing.T) {
 		return fmt.Sprintf("value: %d", x*2), nil
 	}
 
-	_, err := ProcessParallelOrdered(getData, processData, 3)
+	_, err := ProcessParallelOrdered(getIter, processData, 3)
 	if err == nil {
 		t.Fatalf("Expected an error, but got nil")
 	}
@@ -69,43 +59,13 @@ func TestRunParallelProcessing_ProcessError(t *testing.T) {
 	}
 }
 
-func TestRunParallelProcessing_DataError(t *testing.T) {
-	getData := func() (<-chan int, <-chan error) {
-		errChan := make(chan error, 1)
-		go func() {
-			errChan <- errors.New("data retrieval error")
-			close(errChan)
-		}()
-		return nil, errChan
-	}
-
-	processData := func(x int) (string, error) {
-		return fmt.Sprintf("value: %d", x), nil
-	}
-
-	_, err := ProcessParallelOrdered(getData, processData, 3)
-	if err == nil {
-		t.Fatalf("Expected an error, but got nil")
-	}
-	if err.Error() != "data retrieval error" {
-		t.Errorf("Expected specific error, but got %v", err)
-	}
-}
-
 func TestRunParallelProcessing_EmptyData(t *testing.T) {
-	getData := func() (<-chan int, <-chan error) {
-		dataChan := make(chan int)
-		errChan := make(chan error)
-		close(dataChan)
-		close(errChan)
-		return dataChan, errChan
-	}
-
+	getIter := func(yield func(int) bool) {}
 	processData := func(x int) (string, error) {
 		return fmt.Sprintf("value: %d", x*2), nil
 	}
 
-	results, err := ProcessParallelOrdered(getData, processData, 3)
+	results, err := ProcessParallelOrdered(getIter, processData, 3)
 	if err != nil {
 		t.Fatalf("Expected no error, but got: %v", err)
 	}
@@ -115,23 +75,18 @@ func TestRunParallelProcessing_EmptyData(t *testing.T) {
 }
 
 func TestRunParallelProcessing_ZeroWorker(t *testing.T) {
-	getData := func() (<-chan int, <-chan error) {
-		dataChan := make(chan int)
-		errChan := make(chan error)
-		go func() {
-			defer close(dataChan)
-			defer close(errChan)
-			for i := 1; i <= 5; i++ {
-				dataChan <- i
+	getIter := func(yield func(int) bool) {
+		for i := 1; i <= 5; i++ {
+			if !yield(i) {
+				break
 			}
-		}()
-		return dataChan, errChan
+		}
 	}
 	processData := func(x int) (string, error) {
 		return fmt.Sprintf("value: %d", x*2), nil
 	}
 
-	results, err := ProcessParallelOrdered(getData, processData, 0)
+	results, err := ProcessParallelOrdered(getIter, processData, 0)
 	if err != nil {
 		t.Fatalf("Expected no error, but got: %v", err)
 	}

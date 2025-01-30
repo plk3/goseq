@@ -4,47 +4,42 @@ import (
 	"bufio"
 	"io"
 	"os"
+
+	"log"
 )
 
 func ProcessParallelLines(reader io.Reader, processor Processer[string, string], numWorkers int) ([]string, error) {
-	getter := func() (<-chan string, <-chan error) {
-		out := make(chan string)
-		go func() {
-			defer close(out)
-			scanner := bufio.NewScanner(reader)
-			for scanner.Scan() {
-				out <- scanner.Text()
+	getIter := func(yield func(string) bool) {
+		scanner := bufio.NewScanner(reader)
+		for scanner.Scan() {
+			if !yield(scanner.Text()) {
+				break
 			}
-		}()
-		return out, nil
+		}
 	}
-	return ProcessParallelOrdered(getter, processor, numWorkers)
+	return ProcessParallelOrdered(getIter, processor, numWorkers)
 }
 
 func ProcessParallelLinesInChunks(reader io.Reader, processor Processer[[]string, []string], chunkSize int, numWorkers int) ([]string, error) {
-	getter := func() (<-chan []string, <-chan error) {
-		out := make(chan []string)
-		go func() {
-			defer close(out)
-			scanner := bufio.NewScanner(reader)
-			lines := make([]string, 0, chunkSize)
-			lineCount := 0
-			for scanner.Scan() {
-				lines = append(lines, scanner.Text())
-				lineCount++
-				if lineCount == chunkSize {
-					out <- lines
-					lines = make([]string, 0, chunkSize)
-					lineCount = 0
+	getIter := func(yield func([]string) bool) {
+		chunk := make([]string, 0, chunkSize)
+		scanner := bufio.NewScanner(reader)
+		for scanner.Scan() {
+			chunk = append(chunk, scanner.Text())
+
+			if len(chunk) == chunkSize {
+				if !yield(chunk) {
+					return
 				}
+				chunk = make([]string, 0, chunkSize)
 			}
-			if len(lines) > 0 {
-				out <- lines
-			}
-		}()
-		return out, nil
+		}
+
+		if len(chunk) > 0 {
+			yield(chunk)
+		}
 	}
-	data, err := ProcessParallelOrdered(getter, processor, numWorkers)
+	data, err := ProcessParallelOrdered(getIter, processor, numWorkers)
 	if err != nil {
 		return nil, err
 	}
@@ -60,32 +55,20 @@ func ProcessParallelLinesInChunks(reader io.Reader, processor Processer[[]string
 }
 
 func ProcessParallelFiles(filePaths []string, processor Processer[[]byte, []byte], numWorkers int) ([]byte, error) {
-	getter := func() (<-chan []byte, <-chan error) {
-		out := make(chan []byte, len(filePaths))
-		errChan := make(chan error, 1)
-		go func() {
-			defer close(out)
-			defer close(errChan)
-			for _, filePath := range filePaths {
-				file, err := os.Open(filePath)
-				if err != nil {
-					errChan <- err
-					return
-				}
-				defer file.Close()
-				data, err := io.ReadAll(file)
-				if err != nil {
-					errChan <- err
-					return
-				}
-				out <- data
+	getIter := func(yield func([]byte) bool) {
+		for _, path := range filePaths {
+			data, err := os.ReadFile(path)
+			if err != nil {
+				log.Printf("read error: %v\n", err)
+				continue
 			}
-
-		}()
-		return out, errChan
+			if !yield(data) {
+				return
+			}
+		}
 	}
 
-	data, err := ProcessParallelOrdered(getter, processor, numWorkers)
+	data, err := ProcessParallelOrdered(getIter, processor, numWorkers)
 	if err != nil {
 		return nil, err
 	}
